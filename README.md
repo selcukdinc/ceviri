@@ -70,9 +70,12 @@ Gerçek bağlarla (`AI`, `BROWSER`) geliştirmek için `npm run dev` (Cloudflare
 
 ## İlk kurulum ve deploy
 
-`selcukdinc.dev` zonunun bulunduğu Cloudflare hesabında:
+Alan adınızın zonunun bulunduğu Cloudflare hesabında:
+
+Önce şablonu kendi yapılandırmanıza kopyalayın. `wrangler.jsonc` `.gitignore`'dadır; e-posta, alan adı ve `database_id` yalnızca sizde kalır ve `git pull` ile asla çakışmaz:
 
 ```bash
+cp wrangler.example.jsonc wrangler.jsonc   # ADMIN_EMAILS, routes, APP_URL ve database_id'yi düzenleyin
 npx wrangler login
 npx wrangler d1 create ceviri            # çıkan database_id'yi wrangler.jsonc'ye yazın
 npx wrangler r2 bucket create ceviri-files
@@ -82,7 +85,7 @@ npx wrangler secret put GROQ_API_KEY     # isteğe bağlı, https://console.groq
 npm run deploy
 ```
 
-`wrangler.jsonc` içindeki `routes` ayarı `ceviri.selcukdinc.dev` alt alan adını Worker'a otomatik bağlar. Ardından siteye `ADMIN_EMAILS` içindeki e-postayla kayıt olun.
+`wrangler.jsonc` içindeki `routes` ayarı seçtiğiniz alt alan adını Worker'a otomatik bağlar. Ardından siteye `ADMIN_EMAILS` içindeki e-postayla kayıt olun.
 
 İsteğe bağlı:
 - **Turnstile** (kayıtta robot koruması): Cloudflare panelinden site oluşturun, `wrangler secret put TURNSTILE_SECRET` ve `wrangler secret put TURNSTILE_SITE_KEY`.
@@ -92,7 +95,7 @@ npm run deploy
 
 `.github/workflows/deploy.yml` her PR'da tip kontrolü, test ve build çalıştırır. `main`'e her push'ta deploy etmesi için repo ayarlarında:
 
-- Secrets: `CLOUDFLARE_API_TOKEN` (Workers Scripts, D1, R2, Workers Routes düzenleme yetkili), `CLOUDFLARE_ACCOUNT_ID`
+- Secrets: `WRANGLER_CONFIG_JSON` (kendi `wrangler.jsonc` dosyanızın tüm içeriği), `CLOUDFLARE_API_TOKEN` (Workers Scripts, D1, R2, Workers Routes düzenleme yetkili), `CLOUDFLARE_ACCOUNT_ID`
 - Variables: `DEPLOY_ENABLED` = `true`
 
 ## Klasör yapısı

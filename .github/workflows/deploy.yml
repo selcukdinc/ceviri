@@ -35,6 +35,10 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: wrangler.jsonc yapılandırması
+        run: printf '%s' "$WRANGLER_CONFIG_JSON" > wrangler.jsonc
+        env:
+          WRANGLER_CONFIG_JSON: ${{ secrets.WRANGLER_CONFIG_JSON }}
       - name: D1 migration
         run: npx wrangler d1 migrations apply ceviri --remote
       - name: Build ve deploy
