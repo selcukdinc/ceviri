@@ -19,8 +19,8 @@
     // Virgülle ayrılmış e-postalar: bu adreslerle kayıt olan hesap otomatik admin olur.
     "ADMIN_EMAILS": "selcukdinc2508@gmail.com",
     "APP_URL": "https://ceviri.selcukdinc.dev",
-    "GEMINI_MODEL": "gemini-2.5-flash",
-    "GROQ_MODEL": "llama-3.3-70b-versatile",
+    "GEMINI_MODEL": "gemini-3.8-flash",
+    "GROQ_MODEL": "openai/gpt-oss-120b",
     "WORKERS_AI_MODEL": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
     // Yerel geliştirmede gerçek API yerine sahte sağlayıcıyı kullanmak için "1" yapın.
     "MOCK_AI": "0"

@@ -12,6 +12,18 @@ export function buildProviders(env: Env, order: string): TranslationProvider[] {
     .filter((p): p is TranslationProvider => !!p && p.available());
 }
 
+/** Admin panelinden seçilen model adlarını (settings: model.<sağlayıcı>) ortam değişkenlerinin üzerine uygular. */
+export async function effectiveEnv(env: Env, db: D1Database): Promise<Env> {
+  const { results } = await db.prepare("SELECT key, value FROM settings WHERE key LIKE 'model.%'").all<{ key: string; value: string }>();
+  const m = Object.fromEntries(results.map((r) => [r.key, r.value]));
+  return {
+    ...env,
+    GEMINI_MODEL: m["model.gemini"] || env.GEMINI_MODEL,
+    GROQ_MODEL: m["model.groq"] || env.GROQ_MODEL,
+    WORKERS_AI_MODEL: m["model.workersai"] || env.WORKERS_AI_MODEL,
+  };
+}
+
 export const PROVIDER_IDS = ["gemini", "groq", "workersai"] as const;
 
 export function allProviders(env: Env): Record<string, TranslationProvider> {
