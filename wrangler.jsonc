@@ -1,0 +1,47 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "ceviri",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+
+  // React arayüzü statik dosya olarak sunulur; /api/* her zaman Worker'a gider.
+  "assets": {
+    "directory": "./dist/client",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+
+  "routes": [{ "pattern": "ceviri.selcukdinc.dev", "custom_domain": true }],
+
+  "vars": {
+    // Virgülle ayrılmış e-postalar: bu adreslerle kayıt olan hesap otomatik admin olur.
+    "ADMIN_EMAILS": "selcukdinc2508@gmail.com",
+    "APP_URL": "https://ceviri.selcukdinc.dev",
+    "GEMINI_MODEL": "gemini-2.5-flash",
+    "GROQ_MODEL": "llama-3.3-70b-versatile",
+    "WORKERS_AI_MODEL": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+    // Yerel geliştirmede gerçek API yerine sahte sağlayıcıyı kullanmak için "1" yapın.
+    "MOCK_AI": "0"
+  },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "ceviri",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [{ "binding": "FILES", "bucket_name": "ceviri-files" }],
+  "workflows": [
+    {
+      "name": "ceviri-translate",
+      "binding": "TRANSLATE",
+      "class_name": "TranslateWorkflow"
+    }
+  ],
+  "ai": { "binding": "AI" },
+  "browser": { "binding": "BROWSER" }
+}
