@@ -1,8 +1,35 @@
-import * as pdfjs from "pdfjs-dist";
-import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
+// Legacy derleme: Safari ve eski tarayıcılarda eksik olan özellikler (ör. ReadableStream async iterator) için yedeklerle gelir.
+import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs";
+import workerUrl from "pdfjs-dist/legacy/build/pdf.worker.min.mjs?url";
 import type { PageInfo, PdfAnalysis } from "../../shared/types";
 
-pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
+
+// Safari'de ReadableStream async iterator yok; PDF.js `for await (... of stream)` kullanır
+// ("undefined is not a function (near '...e of t...')" hatasının sebebi). Hem ana iş parçacığında
+// hem de PDF.js worker'ında eksikse reader üzerinden aynısını sağlarız.
+const STREAM_POLYFILL = `
+(() => {
+  const proto = globalThis.ReadableStream && globalThis.ReadableStream.prototype;
+  if (!proto || proto[Symbol.asyncIterator]) return;
+  const iterate = function () {
+    const reader = this.getReader();
+    return {
+      next: () => reader.read(),
+      return: async () => { reader.releaseLock(); return { done: true, value: undefined }; },
+      [Symbol.asyncIterator]() { return this; },
+    };
+  };
+  proto[Symbol.asyncIterator] = iterate;
+  if (!proto.values) proto.values = iterate;
+})();
+`;
+// eslint-disable-next-line no-new-func
+new Function(STREAM_POLYFILL)();
+
+const workerSource = `${STREAM_POLYFILL}\nimport ${JSON.stringify(new URL(workerUrl, location.href).href)};`;
+pdfjs.GlobalWorkerOptions.workerPort = new Worker(URL.createObjectURL(new Blob([workerSource], { type: "text/javascript" })), {
+  type: "module",
+});
 
 const IMAGE_OPS = new Set([
   pdfjs.OPS.paintImageXObject,
