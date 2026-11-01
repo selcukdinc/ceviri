@@ -50,6 +50,7 @@ export interface JobSummary {
   progress: number;
   stageNote: string | null;
   provider: string | null;
+  providerLog: string[];
   error: string | null;
   createdAt: number;
   finishedAt: number | null;
