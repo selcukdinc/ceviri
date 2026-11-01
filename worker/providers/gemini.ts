@@ -1,6 +1,6 @@
 import { scanInstruction, translateInstruction } from "../../shared/prompt";
 import type { Env } from "../env";
-import { ProviderError, type ChunkInput, type TranslationProvider } from "./types";
+import { ProviderError, type ChunkInput, type TestResult, type TranslationProvider } from "./types";
 
 const API = "https://generativelanguage.googleapis.com";
 
@@ -18,6 +18,22 @@ export class GeminiProvider implements TranslationProvider {
 
   available() {
     return !!this.env.GEMINI_API_KEY;
+  }
+
+  async test(): Promise<TestResult> {
+    const t0 = Date.now();
+    if (!this.env.GEMINI_API_KEY) return { ok: false, ms: 0, message: "GEMINI_API_KEY tanımlı değil (Worker secret olarak eklenmeli)." };
+    try {
+      const r = await fetch(`${API}/v1beta/models/${this.model}:generateContent`, {
+        method: "POST",
+        headers: { "x-goog-api-key": this.env.GEMINI_API_KEY, "Content-Type": "application/json" },
+        body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: "Sadece OK yaz." }] }], generationConfig: { maxOutputTokens: 16 } }),
+      });
+      if (!r.ok) return { ok: false, ms: Date.now() - t0, message: `HTTP ${r.status}: ${(await r.text()).slice(0, 400)}` };
+      return { ok: true, ms: Date.now() - t0, message: `Çalışıyor (${this.model})` };
+    } catch (e) {
+      return { ok: false, ms: Date.now() - t0, message: String((e as Error).message ?? e) };
+    }
   }
 
   private get model() {

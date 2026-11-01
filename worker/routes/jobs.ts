@@ -26,11 +26,21 @@ interface JobRow {
   progress: number;
   stage_note: string | null;
   provider: string | null;
+  provider_log: string | null;
   error: string | null;
   created_at: number;
   finished_at: number | null;
   has_html?: number;
   has_pdf?: number;
+}
+
+function parseLog(raw: string | null): string[] {
+  try {
+    const v = raw ? JSON.parse(raw) : [];
+    return Array.isArray(v) ? v.map(String) : [];
+  } catch {
+    return [];
+  }
 }
 
 export function toSummary(r: JobRow): JobSummary {
@@ -45,6 +55,7 @@ export function toSummary(r: JobRow): JobSummary {
     progress: r.progress,
     stageNote: r.stage_note,
     provider: r.provider,
+    providerLog: parseLog(r.provider_log),
     error: r.error,
     createdAt: r.created_at,
     finishedAt: r.finished_at,
