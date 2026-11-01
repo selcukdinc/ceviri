@@ -503,6 +503,56 @@ interface ProviderInfo {
   rateLimitedUntil: number | null;
 }
 
+function ModelPicker({ provider, onSaved }: { provider: ProviderInfo; onSaved: () => void }) {
+  const [value, setValue] = useState(provider.model);
+  const [models, setModels] = useState<string[] | null>(null);
+  const [msg, setMsg] = useState<{ tone: "ok" | "bad"; text: string }>();
+  const [busy, setBusy] = useState<"list" | "save" | null>(null);
+  const listId = `models-${provider.id}`;
+  const canList = provider.id !== "workersai" && provider.keyPresent;
+
+  async function fetchModels() {
+    setBusy("list");
+    setMsg(undefined);
+    try {
+      setModels((await api<{ models: string[] }>(`/admin/providers/${provider.id}/models`)).models);
+    } catch (e) {
+      setMsg({ tone: "bad", text: (e as Error).message });
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function save() {
+    setBusy("save");
+    setMsg(undefined);
+    try {
+      await api(`/admin/providers/${provider.id}/model`, { method: "POST", json: { model: value.trim() } });
+      setMsg({ tone: "ok", text: "Kaydedildi. Test et ile doğrulayın." });
+      onSaved();
+    } catch (e) {
+      setMsg({ tone: "bad", text: (e as Error).message });
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      <Field label="Model">
+        <Input list={listId} value={value} onChange={(e) => setValue(e.target.value)} className="font-mono text-xs" spellCheck={false} />
+        <datalist id={listId}>{models?.map((m) => <option key={m} value={m} />)}</datalist>
+      </Field>
+      <div className="flex flex-wrap gap-2">
+        {canList && <Button size="sm" variant="ghost" onClick={fetchModels} loading={busy === "list"}>Modelleri getir{models ? ` (${models.length})` : ""}</Button>}
+        <Button size="sm" variant="secondary" onClick={save} loading={busy === "save"} disabled={!value.trim() || value.trim() === provider.model}>Modeli kaydet</Button>
+      </div>
+      {models && <p className="text-xs text-muted">Alana tıklayınca anahtarınızın erişebildiği modeller listelenir.</p>}
+      {msg && <Alert tone={msg.tone}>{msg.text}</Alert>}
+    </div>
+  );
+}
+
 function Providers() {
   const [data, setData] = useState<{ providers: ProviderInfo[]; mock: boolean } | null>(null);
   const [tests, setTests] = useState<Record<string, { ok: boolean; ms: number; message: string } | "running">>({});
@@ -538,7 +588,7 @@ function Providers() {
             <Card key={p.id}>
               <CardHeader
                 title={p.name}
-                desc={<span className="font-mono text-xs">{p.model}</span>}
+                desc={p.secret}
                 action={p.position ? <Badge tone="accent">{p.position}. sırada</Badge> : <Badge>Sırada değil</Badge>}
               />
               <div className="space-y-3 p-5 text-sm">
@@ -546,6 +596,7 @@ function Providers() {
                   <Badge tone={p.keyPresent ? "ok" : "bad"}>{p.keyPresent ? "Anahtar tanımlı" : `${p.secret} yok`}</Badge>
                   {p.rateLimitedUntil && <Badge tone="warn">Kota beklemesinde · {new Date(p.rateLimitedUntil).toLocaleTimeString("tr-TR")}'e kadar</Badge>}
                 </div>
+                <ModelPicker key={p.model} provider={p} onSaved={load} />
                 <dl className="grid grid-cols-2 gap-2">
                   <div className="rounded-lg bg-surface-2 px-3 py-2"><dt className="text-xs text-muted">Bugün istek</dt><dd className="text-lg font-semibold tabular-nums">{p.todayRequests}</dd></div>
                   <div className="rounded-lg bg-surface-2 px-3 py-2"><dt className="text-xs text-muted">Bugün hata</dt><dd className={`text-lg font-semibold tabular-nums ${p.todayFailures ? "text-bad" : ""}`}>{p.todayFailures}</dd></div>

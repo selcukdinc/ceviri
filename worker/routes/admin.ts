@@ -3,7 +3,8 @@ import type { AppEnv } from "../env";
 import { requireRole } from "../lib/auth";
 import { ledgerInsert } from "../lib/credits";
 import { EDITABLE_SETTINGS, loadSettings } from "../lib/settings";
-import { allProviders, PROVIDER_IDS, recordUsage } from "../providers";
+import { allProviders, effectiveEnv, GeminiProvider, PROVIDER_IDS, recordUsage } from "../providers";
+import { GroqProvider } from "../providers/text";
 import { toSummary } from "./jobs";
 
 const PROVIDERS = ["gemini", "groq", "workersai"];
@@ -140,17 +141,18 @@ export const adminRoutes = new Hono<AppEnv>()
       loadSettings(c.env.DB),
     ]);
     const order = (settings["providers.order"] ?? PROVIDER_IDS.join(",")).split(",");
+    const env = await effectiveEnv(c.env, c.env.DB);
     const meta: Record<string, { name: string; secret: string; model: string; keyPresent: boolean; quotaUrl: string; quotaHint: string }> = {
       gemini: {
-        name: "Google Gemini", secret: "GEMINI_API_KEY", model: c.env.GEMINI_MODEL, keyPresent: !!c.env.GEMINI_API_KEY,
+        name: "Google Gemini", secret: "GEMINI_API_KEY", model: env.GEMINI_MODEL, keyPresent: !!c.env.GEMINI_API_KEY,
         quotaUrl: "https://aistudio.google.com/usage", quotaHint: "Gemini kalan kota bilgisini API üzerinden vermez; kullanım ve limitler AI Studio'da görünür.",
       },
       groq: {
-        name: "Groq", secret: "GROQ_API_KEY", model: c.env.GROQ_MODEL, keyPresent: !!c.env.GROQ_API_KEY,
+        name: "Groq", secret: "GROQ_API_KEY", model: env.GROQ_MODEL, keyPresent: !!c.env.GROQ_API_KEY,
         quotaUrl: "https://console.groq.com/settings/limits", quotaHint: "Kalan istek/token değeri her çağrıdan sonra buraya yansır.",
       },
       workersai: {
-        name: "Workers AI", secret: "(AI bağı)", model: c.env.WORKERS_AI_MODEL, keyPresent: !!c.env.AI,
+        name: "Workers AI", secret: "(AI bağı)", model: env.WORKERS_AI_MODEL, keyPresent: !!c.env.AI,
         quotaUrl: "https://dash.cloudflare.com/?to=/:account/ai/workers-ai", quotaHint: "Günlük 10.000 ücretsiz neuron; kalan değer Cloudflare panelinde.",
       },
     };
@@ -175,11 +177,34 @@ export const adminRoutes = new Hono<AppEnv>()
     });
   })
 
+  /** Anahtarın erişebildiği modelleri canlı listeler (Gemini, Groq). */
+  .get("/providers/:id/models", async (c) => {
+    const id = c.req.param("id");
+    try {
+      if (id === "gemini") return c.json({ models: await new GeminiProvider(c.env).listModels() });
+      if (id === "groq") return c.json({ models: await new GroqProvider(c.env).listModels() });
+      return c.json({ models: [] });
+    } catch (e) {
+      return c.json({ error: `Model listesi alınamadı: ${(e as Error).message}` }, 502);
+    }
+  })
+
+  .post("/providers/:id/model", async (c) => {
+    const id = c.req.param("id");
+    const { model } = await c.req.json<{ model: string }>();
+    if (!(PROVIDER_IDS as readonly string[]).includes(id)) return c.json({ error: "Bilinmeyen sağlayıcı." }, 404);
+    if (!/^[\w./:@-]{1,120}$/.test(model ?? "")) return c.json({ error: "Geçersiz model adı." }, 400);
+    await c.env.DB.prepare("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value")
+      .bind(`model.${id}`, model)
+      .run();
+    return c.json({ ok: true });
+  })
+
   /** Küçük bir gerçek istekle sağlayıcıyı sınar; sonucu durum tablosuna da yazar. */
   .post("/providers/:id/test", async (c) => {
     const id = c.req.param("id");
     if (!(PROVIDER_IDS as readonly string[]).includes(id)) return c.json({ error: "Bilinmeyen sağlayıcı." }, 404);
-    const provider = allProviders(c.env)[id];
+    const provider = allProviders(await effectiveEnv(c.env, c.env.DB))[id];
     const result = await provider.test();
     await recordUsage(c.env.DB, id, result.ok, { error: result.ok ? undefined : `Test: ${result.message}`, info: provider.lastInfo });
     return c.json(result);

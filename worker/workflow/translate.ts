@@ -7,7 +7,7 @@ import { ledgerInsert } from "../lib/credits";
 import { newId } from "../lib/crypto";
 import { loadSettings } from "../lib/settings";
 import { renderPdf } from "../lib/pdf";
-import { buildProviders, GeminiProvider, recordUsage, translateWithFallback } from "../providers";
+import { buildProviders, effectiveEnv, GeminiProvider, recordUsage, translateWithFallback } from "../providers";
 
 export interface TranslateParams {
   jobId: string;
@@ -48,7 +48,7 @@ export class TranslateWorkflow extends WorkflowEntrypoint<Env, TranslateParams> 
       // 1) Gemini varsa PDF'i Files API'ye yükle
       const upload = await step.do("upload-pdf", RETRY, async () => {
         if (this.env.MOCK_AI === "1") return null;
-        const gemini = new GeminiProvider(this.env);
+        const gemini = new GeminiProvider(await effectiveEnv(this.env, db));
         if (!gemini.available()) return null;
         const obj = await this.env.FILES.get(job.pdf_key);
         if (!obj) throw new Error("Kaynak PDF bulunamadı");
@@ -73,7 +73,7 @@ export class TranslateWorkflow extends WorkflowEntrypoint<Env, TranslateParams> 
         let scanError: string | null = null;
         if (geminiFileUri) {
           try {
-            const res = await new GeminiProvider(this.env).scan(geminiFileUri, job.page_count, job.target_lang);
+            const res = await new GeminiProvider(await effectiveEnv(this.env, db)).scan(geminiFileUri, job.page_count, job.target_lang);
             await recordUsage(db, "gemini", true);
             return { sourceLang: res.sourceLang ?? null, title: res.title ?? null, figures: normalizeFigures(res.figures, job.page_count), scanError: null as string | null };
           } catch (e) {
@@ -114,7 +114,7 @@ export class TranslateWorkflow extends WorkflowEntrypoint<Env, TranslateParams> 
         const used = await step.do(`translate-${from}-${to}`, RETRY, async () => {
           const analysis = await this.analysis(jobId);
           const settings = await loadSettings(db);
-          const providers = buildProviders(this.env, settings["providers.order"] ?? "gemini,groq,workersai");
+          const providers = buildProviders(await effectiveEnv(this.env, db), settings["providers.order"] ?? "gemini,groq,workersai");
           const res = await translateWithFallback(db, providers, {
             from,
             to,
