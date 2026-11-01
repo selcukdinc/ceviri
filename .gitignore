@@ -5,3 +5,4 @@ dist
 .dev.vars.*
 *.tsbuildinfo
 .DS_Store
+!.dev.vars.example
