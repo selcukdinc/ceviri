@@ -20,6 +20,23 @@ export class GeminiProvider implements TranslationProvider {
     return !!this.env.GEMINI_API_KEY;
   }
 
+  /** Anahtarın erişebildiği ve generateContent destekleyen modeller. */
+  async listModels(): Promise<string[]> {
+    const out: string[] = [];
+    let token = "";
+    for (let i = 0; i < 5; i++) {
+      const r = await fetch(`${API}/v1beta/models?pageSize=100${token ? `&pageToken=${token}` : ""}`, {
+        headers: { "x-goog-api-key": this.env.GEMINI_API_KEY ?? "" },
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}: ${(await r.text()).slice(0, 200)}`);
+      const d = (await r.json()) as { models?: { name: string; supportedGenerationMethods?: string[] }[]; nextPageToken?: string };
+      for (const m of d.models ?? []) if (m.supportedGenerationMethods?.includes("generateContent")) out.push(m.name.replace(/^models\//, ""));
+      if (!d.nextPageToken) break;
+      token = d.nextPageToken;
+    }
+    return out.filter((n) => /^gemini/.test(n)).sort().reverse();
+  }
+
   async test(): Promise<TestResult> {
     const t0 = Date.now();
     if (!this.env.GEMINI_API_KEY) return { ok: false, ms: 0, message: "GEMINI_API_KEY tanımlı değil (Worker secret olarak eklenmeli)." };
@@ -37,7 +54,7 @@ export class GeminiProvider implements TranslationProvider {
   }
 
   private get model() {
-    return this.env.GEMINI_MODEL || "gemini-2.5-flash";
+    return this.env.GEMINI_MODEL || "gemini-3.8-flash";
   }
 
   /** PDF'i Files API'ye yükler (48 saat saklanır) ve URI döndürür. */

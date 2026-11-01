@@ -62,6 +62,13 @@ export class GroqProvider implements TranslationProvider {
     if (parts.length) this.lastInfo = parts.join(" · ");
   }
 
+  async listModels(): Promise<string[]> {
+    const r = await fetch("https://api.groq.com/openai/v1/models", { headers: { Authorization: `Bearer ${this.env.GROQ_API_KEY ?? ""}` } });
+    if (!r.ok) throw new Error(`HTTP ${r.status}: ${(await r.text()).slice(0, 200)}`);
+    const d = (await r.json()) as { data?: { id: string }[] };
+    return (d.data ?? []).map((m) => m.id).filter((id) => !/whisper|guard|tts|orpheus/i.test(id)).sort();
+  }
+
   async test(): Promise<TestResult> {
     const t0 = Date.now();
     if (!this.env.GROQ_API_KEY) return { ok: false, ms: 0, message: "GROQ_API_KEY tanımlı değil (Worker secret olarak eklenmeli)." };
@@ -69,11 +76,11 @@ export class GroqProvider implements TranslationProvider {
       const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
         method: "POST",
         headers: { Authorization: `Bearer ${this.env.GROQ_API_KEY}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ model: this.env.GROQ_MODEL || "llama-3.3-70b-versatile", max_tokens: 8, messages: [{ role: "user", content: "Sadece OK yaz." }] }),
+        body: JSON.stringify({ model: this.env.GROQ_MODEL || "openai/gpt-oss-120b", max_tokens: 8, messages: [{ role: "user", content: "Sadece OK yaz." }] }),
       });
       this.captureLimits(r);
       if (!r.ok) return { ok: false, ms: Date.now() - t0, message: `HTTP ${r.status}: ${(await r.text()).slice(0, 400)}` };
-      return { ok: true, ms: Date.now() - t0, message: `Çalışıyor (${this.env.GROQ_MODEL || "llama-3.3-70b-versatile"})${this.lastInfo ? ` · ${this.lastInfo}` : ""}` };
+      return { ok: true, ms: Date.now() - t0, message: `Çalışıyor (${this.env.GROQ_MODEL || "openai/gpt-oss-120b"})${this.lastInfo ? ` · ${this.lastInfo}` : ""}` };
     } catch (e) {
       return { ok: false, ms: Date.now() - t0, message: String((e as Error).message ?? e) };
     }
@@ -91,7 +98,7 @@ export class GroqProvider implements TranslationProvider {
       method: "POST",
       headers: { Authorization: `Bearer ${this.env.GROQ_API_KEY}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: this.env.GROQ_MODEL || "llama-3.3-70b-versatile",
+        model: this.env.GROQ_MODEL || "openai/gpt-oss-120b",
         temperature: 0.2,
         messages: [
           { role: "system", content: translateTextInstruction(input.targetLang) },
