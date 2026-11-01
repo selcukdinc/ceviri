@@ -1,0 +1,6 @@
+# Yerel geliştirme için: bu dosyayı .dev.vars olarak kopyalayın.
+GEMINI_API_KEY=
+GROQ_API_KEY=
+SESSION_SECRET=yerel-gelistirme-icin-uzun-rastgele-bir-deger
+TURNSTILE_SECRET=
+MOCK_AI=1
