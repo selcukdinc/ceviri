@@ -20,8 +20,18 @@ export interface ChunkInput {
   geminiFileUri?: string | null;
 }
 
+export interface TestResult {
+  ok: boolean;
+  ms: number;
+  message: string;
+}
+
 export interface TranslationProvider {
   id: string;
+  /** Son çağrıdan elde edilen kota bilgisi (varsa) */
+  lastInfo?: string | null;
+  /** Küçük bir gerçek istekle anahtarı, modeli ve kotayı doğrular */
+  test(): Promise<TestResult>;
   /** PDF'i doğrudan okuyabiliyor mu? */
   readsPdf: boolean;
   available(): boolean;

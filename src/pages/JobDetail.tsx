@@ -106,6 +106,18 @@ export default function JobDetail() {
       )}
       {error && <Alert>{error}</Alert>}
 
+      {job.providerLog.length > 0 && (
+        <Card className="p-5">
+          <h2 className="text-sm font-semibold">Sağlayıcı notları</h2>
+          <p className="mt-1 text-xs text-muted">Bazı sayfalar için ilk sağlayıcı yanıt vermedi ve sıradakine geçildi.</p>
+          <ul className="mt-3 space-y-1.5 text-xs">
+            {job.providerLog.map((l, i) => (
+              <li key={i} className="break-words rounded-md bg-surface-2 px-3 py-2">{l}</li>
+            ))}
+          </ul>
+        </Card>
+      )}
+
       {job.status === "done" && (
         <div className="flex flex-wrap gap-2">
           {job.hasPdf ? (

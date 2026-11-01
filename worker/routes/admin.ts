@@ -3,6 +3,7 @@ import type { AppEnv } from "../env";
 import { requireRole } from "../lib/auth";
 import { ledgerInsert } from "../lib/credits";
 import { EDITABLE_SETTINGS, loadSettings } from "../lib/settings";
+import { allProviders, PROVIDER_IDS, recordUsage } from "../providers";
 import { toSummary } from "./jobs";
 
 const PROVIDERS = ["gemini", "groq", "workersai"];
@@ -125,6 +126,63 @@ export const adminRoutes = new Hono<AppEnv>()
     }
     if (stmts.length) await c.env.DB.batch(stmts);
     return c.json({ ok: true });
+  })
+
+  /** Sağlayıcı sağlığı: anahtar var mı, son hata, bugünkü kullanım, kota bilgisi. */
+  .get("/providers", async (c) => {
+    const day = new Date().toISOString().slice(0, 10);
+    const [status, usage, settings] = await Promise.all([
+      c.env.DB.prepare("SELECT * FROM provider_status").all<{
+        provider: string; last_ok_at: number | null; last_error: string | null; last_error_at: number | null;
+        quota_info: string | null; quota_info_at: number | null; rate_limited_until: number | null;
+      }>(),
+      c.env.DB.prepare("SELECT provider, requests, failures, last_error FROM provider_usage WHERE day = ?").bind(day).all<{ provider: string; requests: number; failures: number }>(),
+      loadSettings(c.env.DB),
+    ]);
+    const order = (settings["providers.order"] ?? PROVIDER_IDS.join(",")).split(",");
+    const meta: Record<string, { name: string; secret: string; model: string; keyPresent: boolean; quotaUrl: string; quotaHint: string }> = {
+      gemini: {
+        name: "Google Gemini", secret: "GEMINI_API_KEY", model: c.env.GEMINI_MODEL, keyPresent: !!c.env.GEMINI_API_KEY,
+        quotaUrl: "https://aistudio.google.com/usage", quotaHint: "Gemini kalan kota bilgisini API üzerinden vermez; kullanım ve limitler AI Studio'da görünür.",
+      },
+      groq: {
+        name: "Groq", secret: "GROQ_API_KEY", model: c.env.GROQ_MODEL, keyPresent: !!c.env.GROQ_API_KEY,
+        quotaUrl: "https://console.groq.com/settings/limits", quotaHint: "Kalan istek/token değeri her çağrıdan sonra buraya yansır.",
+      },
+      workersai: {
+        name: "Workers AI", secret: "(AI bağı)", model: c.env.WORKERS_AI_MODEL, keyPresent: !!c.env.AI,
+        quotaUrl: "https://dash.cloudflare.com/?to=/:account/ai/workers-ai", quotaHint: "Günlük 10.000 ücretsiz neuron; kalan değer Cloudflare panelinde.",
+      },
+    };
+    return c.json({
+      mock: c.env.MOCK_AI === "1",
+      providers: PROVIDER_IDS.map((id) => {
+        const st = status.results.find((r) => r.provider === id);
+        const u = usage.results.find((r) => r.provider === id);
+        return {
+          id, ...meta[id],
+          position: order.indexOf(id) + 1 || null,
+          todayRequests: u?.requests ?? 0,
+          todayFailures: u?.failures ?? 0,
+          lastOkAt: st?.last_ok_at ?? null,
+          lastError: st?.last_error ?? null,
+          lastErrorAt: st?.last_error_at ?? null,
+          quotaInfo: st?.quota_info ?? null,
+          quotaInfoAt: st?.quota_info_at ?? null,
+          rateLimitedUntil: st?.rate_limited_until && st.rate_limited_until > Date.now() ? st.rate_limited_until : null,
+        };
+      }),
+    });
+  })
+
+  /** Küçük bir gerçek istekle sağlayıcıyı sınar; sonucu durum tablosuna da yazar. */
+  .post("/providers/:id/test", async (c) => {
+    const id = c.req.param("id");
+    if (!(PROVIDER_IDS as readonly string[]).includes(id)) return c.json({ error: "Bilinmeyen sağlayıcı." }, 404);
+    const provider = allProviders(c.env)[id];
+    const result = await provider.test();
+    await recordUsage(c.env.DB, id, result.ok, { error: result.ok ? undefined : `Test: ${result.message}`, info: provider.lastInfo });
+    return c.json(result);
   })
 
   .get("/stats", async (c) => {

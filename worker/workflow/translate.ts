@@ -41,35 +41,44 @@ export class TranslateWorkflow extends WorkflowEntrypoint<Env, TranslateParams> 
       return row;
     });
 
+    const log: string[] = [];
     try {
       await this.setStatus(jobId, "scanning", 5, "PDF ön taranıyor");
 
       // 1) Gemini varsa PDF'i Files API'ye yükle
-      const geminiFileUri = await step.do("upload-pdf", RETRY, async () => {
+      const upload = await step.do("upload-pdf", RETRY, async () => {
         if (this.env.MOCK_AI === "1") return null;
         const gemini = new GeminiProvider(this.env);
         if (!gemini.available()) return null;
         const obj = await this.env.FILES.get(job.pdf_key);
         if (!obj) throw new Error("Kaynak PDF bulunamadı");
         try {
-          return await gemini.uploadPdf(await obj.arrayBuffer(), job.title);
+          const uri = await gemini.uploadPdf(await obj.arrayBuffer(), job.title);
+          await recordUsage(db, "gemini", true);
+          return { uri, error: null as string | null };
         } catch (e) {
-          await recordUsage(db, "gemini", false);
+          const message = (e as Error).message ?? String(e);
+          await recordUsage(db, "gemini", false, { error: `PDF yükleme: ${message}` });
           console.warn("Gemini yükleme başarısız, metin tabanlı yedeklere geçiliyor", e);
-          return null;
+          return { uri: null as string | null, error: message };
         }
       });
+      const geminiFileUri = upload && "uri" in upload ? upload.uri : null;
+      if (upload && upload.error) log.push(`Gemini PDF yüklemesi başarısız: ${upload.error.slice(0, 300)} → metin tabanlı yedekler kullanıldı`);
+      else if (!upload) log.push("Gemini anahtarı yok veya devre dışı → metin tabanlı yedekler kullanıldı");
 
       // 2) Ön tarama: korunacak görseller
       const scan = await step.do("scan", RETRY, async () => {
         const analysis = await this.analysis(jobId);
+        let scanError: string | null = null;
         if (geminiFileUri) {
           try {
             const res = await new GeminiProvider(this.env).scan(geminiFileUri, job.page_count, job.target_lang);
             await recordUsage(db, "gemini", true);
-            return { sourceLang: res.sourceLang ?? null, title: res.title ?? null, figures: normalizeFigures(res.figures, job.page_count) };
+            return { sourceLang: res.sourceLang ?? null, title: res.title ?? null, figures: normalizeFigures(res.figures, job.page_count), scanError: null as string | null };
           } catch (e) {
-            await recordUsage(db, "gemini", false);
+            scanError = (e as Error).message ?? String(e);
+            await recordUsage(db, "gemini", false, { error: `Ön tarama: ${scanError}` });
             console.warn("Gemini ön tarama başarısız, yerel analiz kullanılıyor", e);
           }
         }
@@ -80,8 +89,9 @@ export class TranslateWorkflow extends WorkflowEntrypoint<Env, TranslateParams> 
             const first = p.text.split(/\n/).map((s) => s.trim()).find((s) => s.length > 3) ?? "";
             return { page: p.page, filename: figureFileName(p.page, 1, first.slice(0, 40)), caption: first.slice(0, 120), bbox: null };
           });
-        return { sourceLang: null, title: null, figures };
+        return { sourceLang: null, title: null, figures, scanError };
       });
+      if (scan.scanError) log.push(`Gemini ön taraması başarısız: ${scan.scanError.slice(0, 300)} → görseller tarayıcı analizinden (tam sayfa) alındı`);
 
       await this.env.FILES.put(jobKey(jobId, "figures.json"), JSON.stringify(scan.figures, null, 2), {
         httpMetadata: { contentType: "application/json" },
@@ -114,11 +124,14 @@ export class TranslateWorkflow extends WorkflowEntrypoint<Env, TranslateParams> 
             geminiFileUri,
           });
           await this.env.FILES.put(jobKey(jobId, `chunks/${String(from).padStart(4, "0")}.html`), res.html);
-          return res.provider;
+          return { provider: res.provider, attempts: res.attempts };
         });
-        providersUsed.add(used);
+        providersUsed.add(used.provider);
+        const problems = used.attempts.filter((a) => !a.ok);
+        if (problems.length)
+          log.push(`Sayfa ${from}-${to}: ${problems.map((a) => `${a.provider} ✗ (${a.error ?? a.skipped})`).join(", ")} → ${used.provider} ✓`);
       }
-      await db.prepare("UPDATE jobs SET provider = ? WHERE id = ?").bind([...providersUsed].join(", "), jobId).run();
+      await db.prepare("UPDATE jobs SET provider = ?, provider_log = ? WHERE id = ?").bind([...providersUsed].join(", "), JSON.stringify(log.slice(0, 40)), jobId).run();
 
       // 4) Birleştir
       await this.setStatus(jobId, "assembling", 82, "Belge birleştiriliyor");
@@ -167,8 +180,8 @@ export class TranslateWorkflow extends WorkflowEntrypoint<Env, TranslateParams> 
       await step.do("fail", async () => {
         await this.settle(job, "failed");
         await db
-          .prepare("UPDATE jobs SET status = 'failed', error = ?, stage_note = 'Başarısız, kredi iade edildi', finished_at = ? WHERE id = ?")
-          .bind(message.slice(0, 1000), Date.now(), jobId)
+          .prepare("UPDATE jobs SET status = 'failed', error = ?, stage_note = 'Başarısız, kredi iade edildi', finished_at = ?, provider_log = ? WHERE id = ?")
+          .bind(message.slice(0, 1000), Date.now(), JSON.stringify(log.slice(0, 40)), jobId)
           .run();
       });
     }

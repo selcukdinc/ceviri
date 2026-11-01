@@ -20,7 +20,7 @@ interface AdminUser {
   pagesDone: number;
 }
 
-type Tab = "users" | "jobs" | "settings" | "status";
+type Tab = "users" | "jobs" | "providers" | "settings" | "status";
 
 export default function Admin() {
   const [tab, setTab] = useState<Tab>("users");
@@ -31,12 +31,14 @@ export default function Admin() {
         <Tabs value={tab} onChange={setTab} items={[
           { value: "users", label: "Kullanıcılar" },
           { value: "jobs", label: "İşler" },
+          { value: "providers", label: "Sağlayıcılar" },
           { value: "settings", label: "Kredi ve limitler" },
           { value: "status", label: "Durum" },
         ]} />
       </div>
       {tab === "users" && <Users />}
       {tab === "jobs" && <Jobs />}
+      {tab === "providers" && <Providers />}
       {tab === "settings" && <Settings />}
       {tab === "status" && <Status />}
     </div>
@@ -478,6 +480,101 @@ function Status() {
           </div>
         )}
       </Card>
+    </div>
+  );
+}
+
+interface ProviderInfo {
+  id: string;
+  name: string;
+  secret: string;
+  model: string;
+  keyPresent: boolean;
+  quotaUrl: string;
+  quotaHint: string;
+  position: number | null;
+  todayRequests: number;
+  todayFailures: number;
+  lastOkAt: number | null;
+  lastError: string | null;
+  lastErrorAt: number | null;
+  quotaInfo: string | null;
+  quotaInfoAt: number | null;
+  rateLimitedUntil: number | null;
+}
+
+function Providers() {
+  const [data, setData] = useState<{ providers: ProviderInfo[]; mock: boolean } | null>(null);
+  const [tests, setTests] = useState<Record<string, { ok: boolean; ms: number; message: string } | "running">>({});
+
+  const load = useCallback(async () => setData(await api("/admin/providers")), []);
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  async function test(id: string) {
+    setTests((t) => ({ ...t, [id]: "running" }));
+    try {
+      const r = await api<{ ok: boolean; ms: number; message: string }>(`/admin/providers/${id}/test`, { method: "POST" });
+      setTests((t) => ({ ...t, [id]: r }));
+    } catch (e) {
+      setTests((t) => ({ ...t, [id]: { ok: false, ms: 0, message: (e as Error).message } }));
+    }
+    await load();
+  }
+
+  if (!data) return <p className="text-muted">Yükleniyor…</p>;
+  return (
+    <div className="space-y-4">
+      {data.mock && <Alert tone="warn">MOCK_AI=1: gerçek sağlayıcılar yerine sahte sağlayıcı kullanılıyor.</Alert>}
+      <p className="text-sm text-muted">
+        Çeviri sırayla ilk çalışan sağlayıcıyla yapılır. Bir sağlayıcı hata verirse (kota, anahtar, model) sıradakine geçilir; nedeni burada ve her işin detayında görünür.
+        "Test et" küçük bir gerçek istek gönderir.
+      </p>
+      <div className="grid gap-4 lg:grid-cols-3">
+        {data.providers.map((p) => {
+          const t = tests[p.id];
+          return (
+            <Card key={p.id}>
+              <CardHeader
+                title={p.name}
+                desc={<span className="font-mono text-xs">{p.model}</span>}
+                action={p.position ? <Badge tone="accent">{p.position}. sırada</Badge> : <Badge>Sırada değil</Badge>}
+              />
+              <div className="space-y-3 p-5 text-sm">
+                <div className="flex flex-wrap gap-2">
+                  <Badge tone={p.keyPresent ? "ok" : "bad"}>{p.keyPresent ? "Anahtar tanımlı" : `${p.secret} yok`}</Badge>
+                  {p.rateLimitedUntil && <Badge tone="warn">Kota beklemesinde · {new Date(p.rateLimitedUntil).toLocaleTimeString("tr-TR")}'e kadar</Badge>}
+                </div>
+                <dl className="grid grid-cols-2 gap-2">
+                  <div className="rounded-lg bg-surface-2 px-3 py-2"><dt className="text-xs text-muted">Bugün istek</dt><dd className="text-lg font-semibold tabular-nums">{p.todayRequests}</dd></div>
+                  <div className="rounded-lg bg-surface-2 px-3 py-2"><dt className="text-xs text-muted">Bugün hata</dt><dd className={`text-lg font-semibold tabular-nums ${p.todayFailures ? "text-bad" : ""}`}>{p.todayFailures}</dd></div>
+                </dl>
+                {p.quotaInfo && (
+                  <p className="text-xs"><b>Kota:</b> {p.quotaInfo} <span className="text-muted">({p.quotaInfoAt ? formatDate(p.quotaInfoAt) : ""})</span></p>
+                )}
+                <p className="text-xs text-muted">
+                  {p.quotaHint}{" "}
+                  <a href={p.quotaUrl} target="_blank" rel="noreferrer" className="text-accent underline">Kota panelini aç</a>
+                </p>
+                {p.lastError && (
+                  <div className="rounded-lg bg-bad-soft p-3 text-xs text-bad">
+                    <div className="font-medium">Son hata{p.lastErrorAt ? ` · ${formatDate(p.lastErrorAt)}` : ""}</div>
+                    <div className="mt-1 break-words">{p.lastError}</div>
+                  </div>
+                )}
+                {p.lastOkAt && <p className="text-xs text-muted">Son başarılı çağrı: {formatDate(p.lastOkAt)}</p>}
+                {t && t !== "running" && (
+                  <Alert tone={t.ok ? "ok" : "bad"}>
+                    {t.ok ? "✓ " : "✗ "}{t.message}{t.ms ? ` (${t.ms} ms)` : ""}
+                  </Alert>
+                )}
+                <Button variant="secondary" size="sm" onClick={() => test(p.id)} loading={t === "running"}>Test et</Button>
+              </div>
+            </Card>
+          );
+        })}
+      </div>
     </div>
   );
 }
